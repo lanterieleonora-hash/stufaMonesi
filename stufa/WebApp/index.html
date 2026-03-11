@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stufa Monesi - Controllo</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Stufa Monesi 🔥</h1>
+        
+        <div class="status-card">
+            <h2>Temperatura Attuale</h2>
+            <div class="temperature" id="temp-display">--.- °C</div>
+            <p>Stato: <span id="stato-stufa" class="status-spenta">Connessione in corso... ⏳</span></p>
+        </div>
+
+        <div class="controls">
+            <button id="btn-accendi" class="btn btn-green" disabled>ACCENDI STUFA</button>
+            <button id="btn-spegni" class="btn btn-red" disabled>SPEGNI STUFA</button>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="tempChart"></canvas>
+        </div>
+
+        <div class="history-card">
+            <h3>Ricerca Storico 🕒</h3>
+            <p>Controlla la temperatura in un'ora precisa:</p>
+            <div class="history-controls">
+                <input type="time" id="input-orario" class="input-time">
+                <button id="btn-cerca-storico" class="btn-cerca">Cerca</button>
+            </div>
+            <div id="risultato-storico" class="risultato-storico">
+                </div>
+        </div>
+
+        <div id="notifiche" class="notifiche">
+            In attesa di connessione col server...
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
