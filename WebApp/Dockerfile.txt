@@ -1,0 +1,5 @@
+# Usa un mini-server web leggerissimo (Nginx) già pronto
+FROM nginx:alpine
+
+# Copia i file della tua webapp dentro la cartella pubblica del server
+COPY . /usr/share/nginx/html
