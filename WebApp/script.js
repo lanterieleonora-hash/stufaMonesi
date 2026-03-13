@@ -5,32 +5,34 @@ const statoStufa = document.getElementById('stato-stufa');
 const boxNotifiche = document.getElementById('notifiche');
 const tempDisplay = document.getElementById('temp-display');
 
-// Indirizzo del server o dell'ESP (da aggiornare in futuro)
-const API_URL = "http://INDIRIZZO_DEL_SERVER_O_ESP/api"; 
+// --- INDIRIZZI DEGLI ESP ---
+// Sostituisci questi IP con quelli reali che stampano sul Monitor Seriale di Arduino IDE
+const API_SENSORE = "http://192.168.1.100"; 
+const API_SERVO = "http://192.168.1.101";   
 
-// Variabili per ricordare i vecchi dati in caso di disconnessione
+// --- VARIABILI DI STATO ---
 let ultimaTemp = null;
 let ultimoOrario = null;
+let statoAttuale = "spenta"; // Stati possibili: "spenta", "verifica", "accesa"
+let tempT0 = null;           // Temperatura al momento dell'accensione
+let timerVerifica = null;    // Riferimento al timer dei 20 minuti
 
-// --- 1. FUNZIONE PER LEGGERE I DATI ATTUALI (GET) ---
+// --- 1. FUNZIONE PER LEGGERE LA TEMPERATURA (GET) ---
 async function aggiornaDatiStufa() {
     try {
-        const response = await fetch(`${API_URL}/stato`);
-        
-        if (!response.ok) throw new Error(`Codice di errore: ${response.status}`);
+        const response = await fetch(`${API_SENSORE}/stato`);
+        if (!response.ok) throw new Error(`Errore sensore: ${response.status}`);
 
         const dati = await response.json(); 
         
-        // Calcoliamo l'orario attuale
         const adesso = new Date();
         const ore = adesso.getHours().toString().padStart(2, '0');
         const minuti = adesso.getMinutes().toString().padStart(2, '0');
         
-        // Salviamo in memoria
         ultimoOrario = `${ore}:${minuti}`;
         ultimaTemp = dati.temperatura;
         
-        // Mostriamo i dati a schermo
+        // Aggiorna l'interfaccia con la temperatura
         tempDisplay.innerHTML = `
             ${ultimaTemp} °C
             <div style="font-size: 14px; color: #666; font-weight: normal; margin-top: 8px;">
@@ -38,147 +40,143 @@ async function aggiornaDatiStufa() {
             </div>
         `;
 
-        // Gestione stati
-        if (dati.stato === "accesa") {
-            statoStufa.innerHTML = "Accesa 🟢";
-            statoStufa.className = "status-accesa";
-            btnAccendi.disabled = true;
-            btnSpegni.disabled = false;
-            boxNotifiche.innerHTML = "Stufa connessa e operativa. 🔥";
-            
-        } else if (dati.stato === "spenta") {
-            statoStufa.innerHTML = "Spenta 🔴";
-            statoStufa.className = "status-spenta";
+        // Se non siamo in fase di verifica o già accesi, abilitiamo il tasto accendi
+        if (statoAttuale === "spenta") {
             btnAccendi.disabled = false;
-            btnSpegni.disabled = true;
-            boxNotifiche.innerHTML = "Stufa connessa e in attesa di comandi.";
-            
-        } else if (dati.stato === "verifica") {
-            statoStufa.innerHTML = "In verifica 🟡";
-            statoStufa.className = "status-attesa";
-            btnAccendi.disabled = true;
-            btnSpegni.disabled = true;
         }
 
     } catch (errore) {
-        console.error("Errore di rete:", errore);
-        
-        statoStufa.innerHTML = "Disconnessa ❌";
-        statoStufa.className = "status-spenta"; 
-        btnAccendi.disabled = true;
-        btnSpegni.disabled = true;
-
-        if (ultimaTemp !== null && ultimoOrario !== null) {
+        console.error("Errore di rete col sensore:", errore);
+        if (ultimaTemp !== null) {
             tempDisplay.innerHTML = `
                 --.- °C
                 <div style="font-size: 14px; color: #d32f2f; font-weight: normal; margin-top: 8px;">
-                    Ultima temp. rilevata alle ${ultimoOrario}: <b>${ultimaTemp} °C</b>
+                    Sensore offline. Ultima: <b>${ultimaTemp} °C</b> alle ${ultimoOrario}
                 </div>
             `;
-        } else {
-            tempDisplay.innerHTML = `--.- °C`;
         }
-
-        boxNotifiche.innerHTML = `
-            <b style="color: #d32f2f;">⚠️ Nessuna connessione con la stufa</b><br>
-            <span style="font-size: 13px;">I comandi sono disabilitati. Motivi possibili:</span>
-            <ul style="text-align: left; font-size: 13px; margin-top: 5px;">
-                <li>Il dispositivo fisico è spento.</li>
-                <li>La stufa non è connessa al Wi-Fi.</li>
-            </ul>
-            <hr style="border: 0.5px solid #ccc;">
-            <small style="color: #666;">Dettaglio: ${errore.message}</small>
-        `;
     }
 }
 
-// Chiediamo i dati nuovi ogni 10 secondi
+// Chiediamo i dati del sensore ogni 10 secondi
 setInterval(aggiornaDatiStufa, 10000);
 aggiornaDatiStufa();
 
-// --- 2. FUNZIONI PER INVIARE COMANDI (POST) ---
+// --- 2. LOGICA DI ACCENSIONE E VERIFICA (POST + Timer) ---
 btnAccendi.addEventListener('click', async function() {
-    statoStufa.innerHTML = "Invio comando... 🟡";
+    if (ultimaTemp === null) {
+        alert("Attendi la lettura della temperatura prima di accendere.");
+        return;
+    }
+
+    statoAttuale = "verifica";
+    tempT0 = ultimaTemp; // Registriamo la temperatura T0
+    
+    // Aggiorniamo la UI
+    statoStufa.innerHTML = "In accensione... 🟡";
+    statoStufa.className = "status-attesa";
     btnAccendi.disabled = true;
+    btnSpegni.disabled = false; // Permettiamo di annullare
+    boxNotifiche.innerHTML = `Comando inviato. Temperatura iniziale (T0): <b>${tempT0}°C</b>. Attesa di 20 minuti per la verifica... ⏳`;
+
     try {
-        const response = await fetch(`${API_URL}/accendi`, { method: 'POST' });
-        if (response.ok) boxNotifiche.innerHTML = "Comando di accensione inviato! Attesa verifica termica (20 min).";
-        else throw new Error(`Errore dal server: ${response.status}`);
+        // Inviamo il comando al Servo
+        const response = await fetch(`${API_SERVO}/accendi`, { method: 'POST' });
+        if (!response.ok) throw new Error(`Errore dal servo: ${response.status}`);
+
+        // Facciamo partire il timer di 20 minuti (20 * 60 * 1000 millisecondi)
+        // NOTA: Per fare dei test veloci, puoi cambiare 20 in 1 (1 minuto)
+        const tempoAttesaMinuti = 20; 
+        
+        timerVerifica = setTimeout(() => {
+            verificaAccensione();
+        }, tempoAttesaMinuti * 60 * 1000);
+
     } catch (errore) {
-        boxNotifiche.innerHTML = `⚠️ Errore durante l'invio. <br><small>${errore.message}</small>`;
+        boxNotifiche.innerHTML = `⚠️ Errore di comunicazione col Servo. <br><small>${errore.message}</small>`;
+        statoAttuale = "spenta";
+        statoStufa.innerHTML = "Spenta 🔴";
+        statoStufa.className = "status-spenta";
         btnAccendi.disabled = false;
     }
 });
 
+// Funzione che scatta dopo 20 minuti
+function verificaAccensione() {
+    const tempT20 = ultimaTemp;
+    
+    if (tempT20 > tempT0) {
+        // La temperatura è salita: Accensione riuscita!
+        statoAttuale = "accesa";
+        statoStufa.innerHTML = "Accesa 🟢";
+        statoStufa.className = "status-accesa";
+        btnAccendi.disabled = true;
+        btnSpegni.disabled = false;
+        boxNotifiche.innerHTML = `✅ <b>Accensione riuscita:</b> Temperatura salita da ${tempT0}°C a ${tempT20}°C. La stufa è accesa.`;
+    } else {
+        // La temperatura non è salita: Accensione fallita
+        statoAttuale = "spenta";
+        statoStufa.innerHTML = "Fallita 🔴";
+        statoStufa.className = "status-spenta";
+        btnAccendi.disabled = false;
+        btnSpegni.disabled = true;
+        boxNotifiche.innerHTML = `❌ <b>Accensione fallita:</b> Temperatura invariata o scesa (${tempT20}°C). La stufa non si è accesa.`;
+    }
+}
+
+// --- 3. LOGICA DI SPEGNIMENTO (POST) ---
 btnSpegni.addEventListener('click', async function() {
     statoStufa.innerHTML = "Spegnimento... 🔴";
     btnSpegni.disabled = true;
+    
+    // Se c'era una verifica in corso, la annulliamo
+    if (timerVerifica) clearTimeout(timerVerifica);
+
     try {
-        const response = await fetch(`${API_URL}/spegni`, { method: 'POST' });
-        if (response.ok) boxNotifiche.innerHTML = "Comando di spegnimento inviato.";
-        else throw new Error(`Errore dal server: ${response.status}`);
+        const response = await fetch(`${API_SERVO}/spegni`, { method: 'POST' });
+        if (!response.ok) throw new Error(`Errore dal servo: ${response.status}`);
+        
+        statoAttuale = "spenta";
+        statoStufa.innerHTML = "Spenta 🔴";
+        statoStufa.className = "status-spenta";
+        btnAccendi.disabled = false;
+        boxNotifiche.innerHTML = "Comando di spegnimento inviato con successo.";
+
     } catch (errore) {
-        boxNotifiche.innerHTML = `⚠️ Errore. Impossibile spegnere. <br><small>${errore.message}</small>`;
+        boxNotifiche.innerHTML = `⚠️ Errore. Impossibile spegnere il servo. <br><small>${errore.message}</small>`;
         btnSpegni.disabled = false;
     }
 });
 
-// --- 3. FUNZIONE PER CERCARE LO STORICO ---
+// --- 4. GRAFICO E STORICO (MOCK) ---
+// (Mantenuto il codice originale per il grafico e il form dello storico)
 const inputOrario = document.getElementById('input-orario');
 const btnCercaStorico = document.getElementById('btn-cerca-storico');
 const risultatoStorico = document.getElementById('risultato-storico');
 
-btnCercaStorico.addEventListener('click', async function() {
+btnCercaStorico.addEventListener('click', function() {
     const oraScelta = inputOrario.value;
-
     if (!oraScelta) {
         risultatoStorico.innerHTML = "⚠️ Inserisci un orario valido.";
         return;
     }
-
-    risultatoStorico.innerHTML = "Ricerca in corso... ⏳";
-
-    try {
-        const response = await fetch(`${API_URL}/storico?ora=${oraScelta}`);
-        if (!response.ok) throw new Error("Errore dal server");
-
-        const dati = await response.json();
-
-        if (dati.temperatura !== null && dati.temperatura !== undefined) {
-            risultatoStorico.innerHTML = `Alle ore ${oraScelta} c'erano <b>${dati.temperatura} °C</b> 🌡️`;
-        } else {
-            risultatoStorico.innerHTML = `Nessun dato registrato alle ${oraScelta}.`;
-        }
-    } catch (errore) {
-        risultatoStorico.innerHTML = `<span style="color: #d32f2f;">Impossibile connettersi al server per lo storico.</span>`;
-    }
+    risultatoStorico.innerHTML = `(Funzione storico in arrivo! Il server backend non è ancora collegato al DB per le ${oraScelta}).`;
 });
 
-// --- 4. LOGICA GRAFICO (Chart.js) ---
-
-// Funzione per creare le etichette da 00:00 all'ora attuale
 function generaEtichetteOggi() {
     const etichette = [];
-    const oraAttuale = new Date().getHours(); // Prende l'ora esatta (es. 18)
-    
-    // Un ciclo che parte da 0 (mezzanotte) e arriva all'ora attuale
+    const oraAttuale = new Date().getHours(); 
     for (let i = 0; i <= oraAttuale; i++) {
-        // Aggiunge lo "0" davanti se l'ora è a singola cifra (es. 09:00)
-        const oraFormattata = i.toString().padStart(2, '0') + ":00";
-        etichette.push(oraFormattata);
+        etichette.push(i.toString().padStart(2, '0') + ":00");
     }
     return etichette;
 }
 
-// Generiamo dati "finti" proporzionati al numero di ore correnti per non lasciare il grafico vuoto
-// (In futuro questi dati arriveranno dal tuo ESP32)
 function generaDatiTemporanei(numeroOre) {
     const dati = [];
-    let tempPartenza = 14.5; // Immaginiamo 14.5 gradi a mezzanotte
-    
+    let tempPartenza = 14.5; 
     for (let i = 0; i < numeroOre; i++) {
         dati.push(parseFloat(tempPartenza.toFixed(1)));
-        // Simuliamo la temperatura che oscilla un po' durante la giornata
         tempPartenza += (Math.random() * 1.5 - 0.3); 
     }
     return dati;
@@ -202,13 +200,5 @@ const tempChart = new Chart(ctx, {
             tension: 0.4 
         }]
     },
-    options: {
-        responsive: true,
-        scales: {
-            y: { 
-                suggestedMin: 12, 
-                suggestedMax: 25 
-            }
-        }
-    }
+    options: { responsive: true, scales: { y: { suggestedMin: 12, suggestedMax: 25 } } }
 });
