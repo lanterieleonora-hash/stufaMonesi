@@ -1,0 +1,130 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f9;
+    color: #333;
+    text-align: center;
+    margin: 0;
+    padding: 20px;
+}
+
+.container {
+    max-width: 400px;
+    margin: 0 auto;
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.status-card {
+    background: #e9ecef;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.temperature {
+    font-size: 48px;
+    font-weight: bold;
+    color: #2c3e50;
+    margin: 10px 0;
+}
+
+.status-spenta { color: #d32f2f; font-weight: bold; }
+.status-accesa { color: #388e3c; font-weight: bold; }
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.btn {
+    padding: 15px;
+    font-size: 18px;
+    font-weight: bold;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    color: white;
+    transition: opacity 0.3s;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-green { background-color: #27ae60; }
+.btn-red { background-color: #c0392b; }
+
+.chart-container {
+    margin-bottom: 20px;
+}
+
+.notifiche {
+    padding: 15px;
+    background-color: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeeba;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+/* --- SEZIONE STORICO --- */
+.history-card {
+    background: #e9ecef;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.history-card h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #2c3e50;
+}
+
+.history-card p {
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.history-controls {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    align-items: center;
+}
+
+.input-time {
+    padding: 8px;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+    font-size: 16px;
+    font-family: inherit;
+}
+
+.btn-cerca {
+    padding: 8px 15px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 16px;
+    transition: background-color 0.2s;
+}
+
+.btn-cerca:hover {
+    background-color: #2980b9;
+}
+
+.risultato-storico {
+    margin-top: 15px;
+    font-weight: bold;
+    color: #2c3e50;
+    font-size: 16px;
+}
