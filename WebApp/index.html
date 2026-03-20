@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stufa Monesi - Controllo</title>
+    <title>Stufa Monesi - Controllo Avanzato</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -12,9 +12,10 @@
         <h1>Stufa Monesi 🔥</h1>
         
         <div class="status-card">
-            <h2>Temperatura Attuale</h2>
+            <h2>Temperatura Ambiente</h2>
             <div class="temperature" id="temp-display">--.- °C</div>
-            <p>Stato: <span id="stato-stufa" class="status-spenta">Connessione in corso... ⏳</span></p>
+            <p>Stato Contatto: <span id="stato-stufa" class="status-spenta">Connessione in corso... ⏳</span></p>
+            <p id="timer-riscaldamento" style="display: none; font-size: 14px; color: #f57c00; font-weight: bold; margin-top: 10px;"></p>
         </div>
 
         <div class="controls">
@@ -33,12 +34,11 @@
                 <input type="time" id="input-orario" class="input-time">
                 <button id="btn-cerca-storico" class="btn-cerca">Cerca</button>
             </div>
-            <div id="risultato-storico" class="risultato-storico">
-                </div>
+            <div id="risultato-storico" class="risultato-storico"></div>
         </div>
 
         <div id="notifiche" class="notifiche">
-            In attesa di connessione col server...
+            In attesa di connessione col relè...
         </div>
     </div>
 

@@ -4,35 +4,37 @@ const btnSpegni = document.getElementById('btn-spegni');
 const statoStufa = document.getElementById('stato-stufa');
 const boxNotifiche = document.getElementById('notifiche');
 const tempDisplay = document.getElementById('temp-display');
+const timerDisplay = document.getElementById('timer-riscaldamento');
 
-// --- INDIRIZZI DEGLI ESP ---
-// Sostituisci questi IP con quelli reali che stampano sul Monitor Seriale di Arduino IDE
-const API_SENSORE = "http://192.168.1.100"; 
-const API_SERVO = "http://192.168.1.101";   
+// --- INDIRIZZO RELÈ SMART ---
+// Inserisci qui l'IP del tuo Shelly / Relè una volta configurato
+const RELAY_IP = "http://192.168.1.100"; 
 
 // --- VARIABILI DI STATO ---
 let ultimaTemp = null;
 let ultimoOrario = null;
-let statoAttuale = "spenta"; // Stati possibili: "spenta", "verifica", "accesa"
-let tempT0 = null;           // Temperatura al momento dell'accensione
-let timerVerifica = null;    // Riferimento al timer dei 20 minuti
+let tempT0 = null;
+let intervalloCountdown = null;
 
-// --- 1. FUNZIONE PER LEGGERE LA TEMPERATURA (GET) ---
-async function aggiornaDatiStufa() {
+// --- 1. LETTURA STATO E TEMPERATURA ---
+async function aggiornaDati() {
     try {
-        const response = await fetch(`${API_SENSORE}/stato`);
-        if (!response.ok) throw new Error(`Errore sensore: ${response.status}`);
+        // Chiamata API (Esempio per Shelly Plus 1 - Gen 2)
+        const response = await fetch(`${RELAY_IP}/rpc/Shelly.GetStatus`);
+        if (!response.ok) throw new Error(`Errore Relè: ${response.status}`);
 
         const dati = await response.json(); 
         
         const adesso = new Date();
         const ore = adesso.getHours().toString().padStart(2, '0');
         const minuti = adesso.getMinutes().toString().padStart(2, '0');
-        
         ultimoOrario = `${ore}:${minuti}`;
-        ultimaTemp = dati.temperatura;
         
-        // Aggiorna l'interfaccia con la temperatura
+        // Estrazione dati dal JSON
+        ultimaTemp = dati['temperature:0'] ? dati['temperature:0'].tC : "--.-";
+        const releAcceso = dati['switch:0'].output === true;
+        
+        // Aggiornamento Interfaccia Temperatura
         tempDisplay.innerHTML = `
             ${ultimaTemp} °C
             <div style="font-size: 14px; color: #666; font-weight: normal; margin-top: 8px;">
@@ -40,116 +42,114 @@ async function aggiornaDatiStufa() {
             </div>
         `;
 
-        // Se non siamo in fase di verifica o già accesi, abilitiamo il tasto accendi
-        if (statoAttuale === "spenta") {
+        // Aggiornamento Interfaccia Stato
+        if (releAcceso) {
+            statoStufa.innerHTML = "Contatto Chiuso (Accesa) 🟢";
+            statoStufa.className = "status-accesa";
+            btnAccendi.disabled = true;
+            btnSpegni.disabled = false;
+        } else {
+            statoStufa.innerHTML = "Contatto Aperto (Spenta) 🔴";
+            statoStufa.className = "status-spenta";
             btnAccendi.disabled = false;
+            btnSpegni.disabled = true;
+        }
+
+        // Rimuove avvisi di disconnessione se la connessione è tornata
+        if (boxNotifiche.innerText.includes("In attesa") || boxNotifiche.innerText.includes("Offline") || boxNotifiche.innerText.includes("Errore di comunicazione")) {
+             boxNotifiche.innerHTML = "✅ Connessione al relè stabilita.";
         }
 
     } catch (errore) {
-        console.error("Errore di rete col sensore:", errore);
-        if (ultimaTemp !== null) {
-            tempDisplay.innerHTML = `
-                --.- °C
-                <div style="font-size: 14px; color: #d32f2f; font-weight: normal; margin-top: 8px;">
-                    Sensore offline. Ultima: <b>${ultimaTemp} °C</b> alle ${ultimoOrario}
-                </div>
-            `;
-        }
+        console.error("Errore di rete:", errore);
+        statoStufa.innerHTML = "Disconnesso ⚠️";
+        statoStufa.className = "status-spenta";
+        btnAccendi.disabled = true;
+        btnSpegni.disabled = true;
+        boxNotifiche.innerHTML = `⚠️ Errore di comunicazione col relè all'IP ${RELAY_IP}. Assicurati che sia acceso e connesso alla rete.`;
     }
 }
 
-// Chiediamo i dati del sensore ogni 10 secondi
-setInterval(aggiornaDatiStufa, 10000);
-aggiornaDatiStufa();
+// Avvia il polling ogni 5 secondi
+setInterval(aggiornaDati, 5000);
+aggiornaDati();
 
-// --- 2. LOGICA DI ACCENSIONE E VERIFICA (POST + Timer) ---
-btnAccendi.addEventListener('click', async function() {
-    if (ultimaTemp === null) {
-        alert("Attendi la lettura della temperatura prima di accendere.");
-        return;
-    }
-
-    statoAttuale = "verifica";
-    tempT0 = ultimaTemp; // Registriamo la temperatura T0
+// --- FUNZIONE TIMER DI VERIFICA (20 MIN) ---
+function avviaCountdownVerifica() {
+    if (intervalloCountdown) clearInterval(intervalloCountdown);
     
-    // Aggiorniamo la UI
-    statoStufa.innerHTML = "In accensione... 🟡";
-    statoStufa.className = "status-attesa";
+    let tempoRimanente = 20 * 60; // 20 minuti in secondi
+    timerDisplay.style.display = "block";
+
+    intervalloCountdown = setInterval(() => {
+        tempoRimanente--;
+        let min = Math.floor(tempoRimanente / 60).toString().padStart(2, '0');
+        let sec = (tempoRimanente % 60).toString().padStart(2, '0');
+        
+        timerDisplay.innerHTML = `⏳ Verifica accensione fiamma in: ${min}:${sec} <br> <small>(Partita da: ${tempT0}°C)</small>`;
+
+        if (tempoRimanente <= 0) {
+            clearInterval(intervalloCountdown);
+            timerDisplay.style.display = "none";
+            
+            // CONFRONTO TEMPERATURA
+            let delta = (parseFloat(ultimaTemp) - tempT0).toFixed(1);
+            if (delta > 0) {
+                boxNotifiche.innerHTML = `🔥 <b>Stufa a regime:</b> La temperatura è salita di ${delta}°C (da ${tempT0}°C a ${ultimaTemp}°C).`;
+            } else {
+                boxNotifiche.innerHTML = `⚠️ <b>Attenzione:</b> Dopo 20 minuti la temperatura non è salita (Partenza: ${tempT0}°C, Attuale: ${ultimaTemp}°C). Verifica se il pellet è finito o se la stufa è in allarme.`;
+            }
+        }
+    }, 1000);
+}
+
+// --- 2. LOGICA DI ACCENSIONE ---
+btnAccendi.addEventListener('click', async function() {
+    boxNotifiche.innerHTML = "⏳ Invio comando di accensione...";
     btnAccendi.disabled = true;
-    btnSpegni.disabled = false; // Permettiamo di annullare
-    boxNotifiche.innerHTML = `Comando inviato. Temperatura iniziale (T0): <b>${tempT0}°C</b>. Attesa di 20 minuti per la verifica... ⏳`;
 
     try {
-        // Inviamo il comando al Servo
-        const response = await fetch(`${API_SERVO}/accendi`, { method: 'POST' });
-        if (!response.ok) throw new Error(`Errore dal servo: ${response.status}`);
-
-        // Facciamo partire il timer di 20 minuti (20 * 60 * 1000 millisecondi)
-        // NOTA: Per fare dei test veloci, puoi cambiare 20 in 1 (1 minuto)
-        const tempoAttesaMinuti = 20; 
+        const response = await fetch(`${RELAY_IP}/rpc/Switch.Set?id=0&on=true`);
+        if (!response.ok) throw new Error(`Errore API: ${response.status}`);
         
-        timerVerifica = setTimeout(() => {
-            verificaAccensione();
-        }, tempoAttesaMinuti * 60 * 1000);
-
+        boxNotifiche.innerHTML = `✅ Comando inviato: Contatto chiuso. La stufa si sta accendendo.`;
+        
+        // Salva la temperatura di partenza e avvia il timer di verifica
+        tempT0 = (ultimaTemp && ultimaTemp !== "--.-") ? parseFloat(ultimaTemp) : null;
+        if (tempT0 !== null) avviaCountdownVerifica();
+        
+        setTimeout(aggiornaDati, 1000); 
     } catch (errore) {
-        boxNotifiche.innerHTML = `⚠️ Errore di comunicazione col Servo. <br><small>${errore.message}</small>`;
-        statoAttuale = "spenta";
-        statoStufa.innerHTML = "Spenta 🔴";
-        statoStufa.className = "status-spenta";
+        boxNotifiche.innerHTML = `⚠️ Errore durante l'accensione: <br><small>${errore.message}</small>`;
         btnAccendi.disabled = false;
     }
 });
 
-// Funzione che scatta dopo 20 minuti
-function verificaAccensione() {
-    const tempT20 = ultimaTemp;
-    
-    if (tempT20 > tempT0) {
-        // La temperatura è salita: Accensione riuscita!
-        statoAttuale = "accesa";
-        statoStufa.innerHTML = "Accesa 🟢";
-        statoStufa.className = "status-accesa";
-        btnAccendi.disabled = true;
-        btnSpegni.disabled = false;
-        boxNotifiche.innerHTML = `✅ <b>Accensione riuscita:</b> Temperatura salita da ${tempT0}°C a ${tempT20}°C. La stufa è accesa.`;
-    } else {
-        // La temperatura non è salita: Accensione fallita
-        statoAttuale = "spenta";
-        statoStufa.innerHTML = "Fallita 🔴";
-        statoStufa.className = "status-spenta";
-        btnAccendi.disabled = false;
-        btnSpegni.disabled = true;
-        boxNotifiche.innerHTML = `❌ <b>Accensione fallita:</b> Temperatura invariata o scesa (${tempT20}°C). La stufa non si è accesa.`;
-    }
-}
-
-// --- 3. LOGICA DI SPEGNIMENTO (POST) ---
+// --- 3. LOGICA DI SPEGNIMENTO ---
 btnSpegni.addEventListener('click', async function() {
-    statoStufa.innerHTML = "Spegnimento... 🔴";
+    boxNotifiche.innerHTML = "⏳ Invio comando di spegnimento...";
     btnSpegni.disabled = true;
-    
-    // Se c'era una verifica in corso, la annulliamo
-    if (timerVerifica) clearTimeout(timerVerifica);
 
     try {
-        const response = await fetch(`${API_SERVO}/spegni`, { method: 'POST' });
-        if (!response.ok) throw new Error(`Errore dal servo: ${response.status}`);
+        const response = await fetch(`${RELAY_IP}/rpc/Switch.Set?id=0&on=false`);
+        if (!response.ok) throw new Error(`Errore API: ${response.status}`);
         
-        statoAttuale = "spenta";
-        statoStufa.innerHTML = "Spenta 🔴";
-        statoStufa.className = "status-spenta";
-        btnAccendi.disabled = false;
-        boxNotifiche.innerHTML = "Comando di spegnimento inviato con successo.";
-
+        boxNotifiche.innerHTML = `✅ Comando inviato: Contatto aperto. Stufa in fase di spegnimento.`;
+        
+        // Ferma il timer di verifica se si spegne prima dei 20 minuti
+        if (intervalloCountdown) {
+            clearInterval(intervalloCountdown);
+            timerDisplay.style.display = "none";
+        }
+        
+        setTimeout(aggiornaDati, 1000); 
     } catch (errore) {
-        boxNotifiche.innerHTML = `⚠️ Errore. Impossibile spegnere il servo. <br><small>${errore.message}</small>`;
+        boxNotifiche.innerHTML = `⚠️ Errore durante lo spegnimento: <br><small>${errore.message}</small>`;
         btnSpegni.disabled = false;
     }
 });
 
 // --- 4. GRAFICO E STORICO (MOCK) ---
-// (Mantenuto il codice originale per il grafico e il form dello storico)
 const inputOrario = document.getElementById('input-orario');
 const btnCercaStorico = document.getElementById('btn-cerca-storico');
 const risultatoStorico = document.getElementById('risultato-storico');
@@ -160,7 +160,7 @@ btnCercaStorico.addEventListener('click', function() {
         risultatoStorico.innerHTML = "⚠️ Inserisci un orario valido.";
         return;
     }
-    risultatoStorico.innerHTML = `(Funzione storico in arrivo! Il server backend non è ancora collegato al DB per le ${oraScelta}).`;
+    risultatoStorico.innerHTML = `(Funzione storico in arrivo per le ${oraScelta}).`;
 });
 
 function generaEtichetteOggi() {
