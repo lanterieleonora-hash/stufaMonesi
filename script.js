@@ -6,9 +6,9 @@ const boxNotifiche = document.getElementById('notifiche');
 const tempDisplay = document.getElementById('temp-display');
 const timerDisplay = document.getElementById('timer-riscaldamento');
 
-// --- INDIRIZZO RELÈ SMART ---
-// Inserisci qui l'IP del tuo Shelly / Relè una volta configurato
-const RELAY_IP = "http://192.168.1.100"; 
+// --- INDIRIZZI IP DEI DISPOSITIVI (Inserisci qui i tuoi IP fissi!) ---
+const RELAY_IP = "http://192.168.1.100";  // IP del Relè (Stufa)
+const TEMP_IP = "http://192.168.1.101";   // IP del Termometro Wi-Fi
 
 // --- VARIABILI DI STATO ---
 let ultimaTemp = null;
@@ -16,25 +16,56 @@ let ultimoOrario = null;
 let tempT0 = null;
 let intervalloCountdown = null;
 
-// --- 1. LETTURA STATO E TEMPERATURA ---
+// --- INIZIALIZZAZIONE GRAFICO VUOTO ---
+const ctx = document.getElementById('tempChart').getContext('2d');
+const tempChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: [], // Array vuoto per gli orari
+        datasets: [{
+            label: 'Temperatura (°C)',
+            data: [], // Array vuoto per i gradi
+            borderColor: '#f57c00',
+            backgroundColor: 'rgba(245, 124, 0, 0.2)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.3
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: {
+                beginAtZero: false,
+                suggestedMin: 15,
+                suggestedMax: 25
+            }
+        }
+    }
+});
+
+// --- 1. LETTURA STATO E TEMPERATURA REALE ---
 async function aggiornaDati() {
     try {
-        // Chiamata API (Esempio per Shelly Plus 1 - Gen 2)
-        const response = await fetch(`${RELAY_IP}/rpc/Shelly.GetStatus`);
-        if (!response.ok) throw new Error(`Errore Relè: ${response.status}`);
-
-        const dati = await response.json(); 
+        // A. Interroga il Termometro per i gradi
+        const resTemp = await fetch(`${TEMP_IP}/rpc/Shelly.GetStatus`);
+        if (!resTemp.ok) throw new Error("Errore Termometro");
+        const datiTemp = await resTemp.json();
         
+        // B. Interroga il Relè per lo stato della stufa
+        const resRelay = await fetch(`${RELAY_IP}/rpc/Shelly.GetStatus`);
+        if (!resRelay.ok) throw new Error("Errore Relè Stufa");
+        const datiRelay = await resRelay.json(); 
+        
+        // Orario attuale
         const adesso = new Date();
-        const ore = adesso.getHours().toString().padStart(2, '0');
-        const minuti = adesso.getMinutes().toString().padStart(2, '0');
-        ultimoOrario = `${ore}:${minuti}`;
+        ultimoOrario = adesso.getHours().toString().padStart(2, '0') + ":" + adesso.getMinutes().toString().padStart(2, '0');
         
-        // Estrazione dati dal JSON
-        ultimaTemp = dati['temperature:0'] ? dati['temperature:0'].tC : "--.-";
-        const releAcceso = dati['switch:0'].output === true;
+        // Estrazione dati 
+        ultimaTemp = datiTemp['temperature:0'] ? datiTemp['temperature:0'].tC : "--.-";
+        const releAcceso = datiRelay['switch:0'].output === true;
         
-        // Aggiornamento Interfaccia Temperatura
+        // Aggiornamento Testo Temperatura
         tempDisplay.innerHTML = `
             ${ultimaTemp} °C
             <div style="font-size: 14px; color: #666; font-weight: normal; margin-top: 8px;">
@@ -42,7 +73,26 @@ async function aggiornaDati() {
             </div>
         `;
 
-        // Aggiornamento Interfaccia Stato
+        // AGGIORNAMENTO DINAMICO DEL GRAFICO IN TEMPO REALE
+        if (ultimaTemp !== "--.-") {
+            const tempNumerica = parseFloat(ultimaTemp);
+            
+            // Aggiungiamo solo se l'orario è diverso dall'ultimo punto (per evitare doppioni nello stesso minuto)
+            const ultimoLabel = tempChart.data.labels[tempChart.data.labels.length - 1];
+            if (ultimoLabel !== ultimoOrario) {
+                tempChart.data.labels.push(ultimoOrario);
+                tempChart.data.datasets[0].data.push(tempNumerica);
+
+                // Manteniamo solo le ultime 30 letture a schermo
+                if (tempChart.data.labels.length > 30) {
+                    tempChart.data.labels.shift();
+                    tempChart.data.datasets[0].data.shift();
+                }
+                tempChart.update();
+            }
+        }
+
+        // Aggiornamento Pulsanti e Stato
         if (releAcceso) {
             statoStufa.innerHTML = "Contatto Chiuso (Accesa) 🟢";
             statoStufa.className = "status-accesa";
@@ -55,9 +105,8 @@ async function aggiornaDati() {
             btnSpegni.disabled = true;
         }
 
-        // Rimuove avvisi di disconnessione se la connessione è tornata
-        if (boxNotifiche.innerText.includes("In attesa") || boxNotifiche.innerText.includes("Offline") || boxNotifiche.innerText.includes("Errore di comunicazione")) {
-             boxNotifiche.innerHTML = "✅ Connessione al relè stabilita.";
+        if (boxNotifiche.innerText.includes("In attesa") || boxNotifiche.innerText.includes("Errore")) {
+             boxNotifiche.innerHTML = "✅ Sistema online. In attesa di comandi.";
         }
 
     } catch (errore) {
@@ -66,11 +115,11 @@ async function aggiornaDati() {
         statoStufa.className = "status-spenta";
         btnAccendi.disabled = true;
         btnSpegni.disabled = true;
-        boxNotifiche.innerHTML = `⚠️ Errore di comunicazione col relè all'IP ${RELAY_IP}. Assicurati che sia acceso e connesso alla rete.`;
+        boxNotifiche.innerHTML = `⚠️ Comunicazione interrotta. Verifica che Relè e Termometro siano accesi e connessi al Wi-Fi.`;
     }
 }
 
-// Avvia il polling ogni 5 secondi
+// Avvia il controllo ogni 5 secondi
 setInterval(aggiornaDati, 5000);
 aggiornaDati();
 
@@ -78,7 +127,7 @@ aggiornaDati();
 function avviaCountdownVerifica() {
     if (intervalloCountdown) clearInterval(intervalloCountdown);
     
-    let tempoRimanente = 20 * 60; // 20 minuti in secondi
+    let tempoRimanente = 20 * 60; // 20 minuti
     timerDisplay.style.display = "block";
 
     intervalloCountdown = setInterval(() => {
@@ -86,18 +135,17 @@ function avviaCountdownVerifica() {
         let min = Math.floor(tempoRimanente / 60).toString().padStart(2, '0');
         let sec = (tempoRimanente % 60).toString().padStart(2, '0');
         
-        timerDisplay.innerHTML = `⏳ Verifica accensione fiamma in: ${min}:${sec} <br> <small>(Partita da: ${tempT0}°C)</small>`;
+        timerDisplay.innerHTML = `⏳ Verifica accensione in: ${min}:${sec} <br> <small>(Partita da: ${tempT0}°C)</small>`;
 
         if (tempoRimanente <= 0) {
             clearInterval(intervalloCountdown);
             timerDisplay.style.display = "none";
             
-            // CONFRONTO TEMPERATURA
             let delta = (parseFloat(ultimaTemp) - tempT0).toFixed(1);
             if (delta > 0) {
-                boxNotifiche.innerHTML = `🔥 <b>Stufa a regime:</b> La temperatura è salita di ${delta}°C (da ${tempT0}°C a ${ultimaTemp}°C).`;
+                boxNotifiche.innerHTML = `🔥 <b>Stufa a regime:</b> Temp. salita di ${delta}°C.`;
             } else {
-                boxNotifiche.innerHTML = `⚠️ <b>Attenzione:</b> Dopo 20 minuti la temperatura non è salita (Partenza: ${tempT0}°C, Attuale: ${ultimaTemp}°C). Verifica se il pellet è finito o se la stufa è in allarme.`;
+                boxNotifiche.innerHTML = `⚠️ <b>Attenzione:</b> Dopo 20 min temperatura invariata. Verifica la stufa.`;
             }
         }
     }, 1000);
@@ -107,20 +155,15 @@ function avviaCountdownVerifica() {
 btnAccendi.addEventListener('click', async function() {
     boxNotifiche.innerHTML = "⏳ Invio comando di accensione...";
     btnAccendi.disabled = true;
-
     try {
         const response = await fetch(`${RELAY_IP}/rpc/Switch.Set?id=0&on=true`);
-        if (!response.ok) throw new Error(`Errore API: ${response.status}`);
-        
-        boxNotifiche.innerHTML = `✅ Comando inviato: Contatto chiuso. La stufa si sta accendendo.`;
-        
-        // Salva la temperatura di partenza e avvia il timer di verifica
+        if (!response.ok) throw new Error("Errore API");
+        boxNotifiche.innerHTML = `✅ Comando inviato. La stufa si sta accendendo.`;
         tempT0 = (ultimaTemp && ultimaTemp !== "--.-") ? parseFloat(ultimaTemp) : null;
         if (tempT0 !== null) avviaCountdownVerifica();
-        
         setTimeout(aggiornaDati, 1000); 
     } catch (errore) {
-        boxNotifiche.innerHTML = `⚠️ Errore durante l'accensione: <br><small>${errore.message}</small>`;
+        boxNotifiche.innerHTML = `⚠️ Errore accensione: Impossibile contattare il relè.`;
         btnAccendi.disabled = false;
     }
 });
@@ -129,76 +172,17 @@ btnAccendi.addEventListener('click', async function() {
 btnSpegni.addEventListener('click', async function() {
     boxNotifiche.innerHTML = "⏳ Invio comando di spegnimento...";
     btnSpegni.disabled = true;
-
     try {
         const response = await fetch(`${RELAY_IP}/rpc/Switch.Set?id=0&on=false`);
-        if (!response.ok) throw new Error(`Errore API: ${response.status}`);
-        
-        boxNotifiche.innerHTML = `✅ Comando inviato: Contatto aperto. Stufa in fase di spegnimento.`;
-        
-        // Ferma il timer di verifica se si spegne prima dei 20 minuti
+        if (!response.ok) throw new Error("Errore API");
+        boxNotifiche.innerHTML = `✅ Comando inviato. Stufa in spegnimento.`;
         if (intervalloCountdown) {
             clearInterval(intervalloCountdown);
             timerDisplay.style.display = "none";
         }
-        
         setTimeout(aggiornaDati, 1000); 
     } catch (errore) {
-        boxNotifiche.innerHTML = `⚠️ Errore durante lo spegnimento: <br><small>${errore.message}</small>`;
+        boxNotifiche.innerHTML = `⚠️ Errore spegnimento: Impossibile contattare il relè.`;
         btnSpegni.disabled = false;
     }
-});
-
-// --- 4. GRAFICO E STORICO (MOCK) ---
-const inputOrario = document.getElementById('input-orario');
-const btnCercaStorico = document.getElementById('btn-cerca-storico');
-const risultatoStorico = document.getElementById('risultato-storico');
-
-btnCercaStorico.addEventListener('click', function() {
-    const oraScelta = inputOrario.value;
-    if (!oraScelta) {
-        risultatoStorico.innerHTML = "⚠️ Inserisci un orario valido.";
-        return;
-    }
-    risultatoStorico.innerHTML = `(Funzione storico in arrivo per le ${oraScelta}).`;
-});
-
-function generaEtichetteOggi() {
-    const etichette = [];
-    const oraAttuale = new Date().getHours(); 
-    for (let i = 0; i <= oraAttuale; i++) {
-        etichette.push(i.toString().padStart(2, '0') + ":00");
-    }
-    return etichette;
-}
-
-function generaDatiTemporanei(numeroOre) {
-    const dati = [];
-    let tempPartenza = 14.5; 
-    for (let i = 0; i < numeroOre; i++) {
-        dati.push(parseFloat(tempPartenza.toFixed(1)));
-        tempPartenza += (Math.random() * 1.5 - 0.3); 
-    }
-    return dati;
-}
-
-const etichetteAsseX = generaEtichetteOggi();
-const datiAsseY = generaDatiTemporanei(etichetteAsseX.length);
-
-const ctx = document.getElementById('tempChart').getContext('2d');
-const tempChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: etichetteAsseX, 
-        datasets: [{
-            label: 'Andamento Temperatura Oggi (°C)',
-            data: datiAsseY, 
-            borderColor: '#e74c3c',
-            backgroundColor: 'rgba(231, 76, 60, 0.2)',
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4 
-        }]
-    },
-    options: { responsive: true, scales: { y: { suggestedMin: 12, suggestedMax: 25 } } }
 });

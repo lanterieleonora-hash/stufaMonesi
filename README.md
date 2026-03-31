@@ -1,200 +1,26 @@
-\# stufaMonesi
+# stufaMonesi
+# Sistema di Controllo Remoto per Stufa a Pellet via Contatto Pulito
 
-\# Sistema di Accensione e Spegnimento Remoto per Stufa con Monitoraggio della Temperatura
+## Panoramica del Progetto
+Questo progetto permette di gestire l'accensione e lo spegnimento di una stufa da remoto tramite una **web app**. 
+Il sistema sfrutta l'ingresso "Termostato Esterno" (o Contatto Pulito / Morsetto T.A.) presente sulla scheda madre della maggior parte delle stufe a pellet. Collegando un relè Wi-Fi a questo ingresso, possiamo comandare la stufa simulando la richiesta di calore di un termostato.
 
+## Componenti Principali
 
+### Relè Smart (Contatto Pulito)
+- **Consigliato:** Shelly Plus 1 o Sonoff Basic R3 (versione Dry Contact).
+- Il relè si collega al Wi-Fi di casa ed espone delle API HTTP.
+- I morsetti I/O (Input/Output a potenziale zero) del relè vanno collegati ai morsetti del termostato esterno della stufa.
 
-\## Panoramica del Progetto
+### Sensore di Temperatura
+- Utilizzando uno Shelly Plus 1, è possibile aggiungere lo "Shelly Plus Add-on" per collegare un sensore di temperatura (es. DS18B20) direttamente al relè.
+- Questo permette di avere, interrogando un solo indirizzo IP, sia lo stato del contatto della stufa che la temperatura ambientale.
 
-Questo progetto permette di accendere e spegnere una stufa da remoto tramite una \*\*web app\*\*, anche se la stufa non dispone di funzionalità smart.  
+## Logica di Controllo e Verifica
+Il sistema lavora su due livelli di conferma per garantire la massima affidabilità:
 
-Il sistema utilizza un servo motore per premere fisicamente il pulsante della stufa e un sensore di temperatura per monitorare l’ambiente e verificare automaticamente se l’accensione è avvenuta con successo.  
+1. **Conferma Elettrica (Immediata):** Quando premi "Accendi", la web app ordina al relè di chiudere il contatto. Lo stato della stufa passa subito ad "Accesa".
+2. **Controllo Fiamma (Timer 20 min):** Non appena il contatto viene chiuso, il sistema registra la temperatura (T0) e avvia un timer. Dopo 20 minuti, legge la nuova temperatura (T20). Se la temperatura è salita, conferma che la stufa sta scaldando. Altrimenti, invia un avviso di anomalia (es. pellet esaurito o mancata accensione).
 
-In ogni momento, dalla web app è possibile visualizzare la \*\*temperatura attuale rilevata dal sensore\*\*.
-
-
-
-\## Componenti Principali
-
-
-
-\### Microcontrollore
-
-\- ESP8266 o ESP32  
-
-\- Connessione Wi‑Fi integrata  
-
-\- Gestisce servo, sensore, notifiche e comunicazione con la web app
-
-
-
-\### Servo Motore
-
-\- Modello consigliato: SG90 o MG996R  
-
-\- Installato davanti al pulsante della stufa  
-
-
-
-
-
-\### Sensore di Temperatura
-
-Possibili scelte:
-
-\- DHT22  
-
-\- DS18B20  
-
-\- BME280  
-
-
-
-Il sensore fornisce:
-
-\- Temperatura attuale  
-
-\- Storico della giornata  
-
-\- Variazioni utili a verificare l’accensione
-
-
-
-\### Web App di Controllo
-
-La web app permette di:
-
-\- Accendere la stufa  
-
-\- Spegnere la stufa  
-
-\- Visualizzare \*\*in ogni momento\*\* la temperatura attuale del sensore  
-
-\- Consultare il grafico delle variazioni giornaliere  
-
-\- Ricevere notifiche automatiche sullo stato dell’accensione
-
-
-
-La web app può essere ospitata:
-
-\- Direttamente sull’ESP (mini server)  
-
-\- Oppure su un server esterno che comunica con l’ESP tramite API
-
-
-
-\## Funzionamento del Sistema
-
-
-
-\### Accensione Remota
-
-1\. L’utente apre la web app e preme “Accendi stufa”.  
-
-2\. L’ESP registra la temperatura attuale (T0).  
-
-3\. Il servo preme il pulsante di accensione.  
-
-4\. L’ESP attende 20 minuti.  
-
-5\. Dopo 20 minuti, il sensore rileva una nuova temperatura (T20).  
-
-6\. Il sistema confronta T20 con T0:
-
-&nbsp;  - Se T20 > T0 → \*\*Accensione riuscita\*\*  
-
-&nbsp;  - Se T20 ≤ T0 → \*\*Accensione fallita\*\*  
-
-7\. La web app riceve una notifica con l’esito.
-
-
-
-\### Spegnimento Remoto
-
-1\. L’utente preme “Spegni stufa” nella web app.  
-
-2\. Il servo preme il pulsante di spegnimento.  
-
-3\. L’azione viene registrata nella web app.  
-
-4\. (Opzionale) Il sistema può monitorare il raffreddamento per confermare lo spegnimento.
-
-
-
-\### Monitoraggio della Temperatura
-
-Il sensore invia letture periodiche (es. ogni 1–5 minuti):
-
-\- Temperatura attuale  
-
-\- Storico della giornata  
-
-\- Andamento e variazioni
-
-
-
-La web app mostra:
-
-\- Temperatura in tempo reale  
-
-\- Grafico giornaliero  
-
-\- Notifiche automatiche
-
-
-
-\## Logica di Verifica dell’Accensione
-
-
-
-| Fase | Azione |
-
-|------|--------|
-
-| T0 | Lettura temperatura al momento del comando |
-
-| +20 min | Lettura temperatura T20 |
-
-| Confronto | Se T20 > T0 → stufa accesa |
-
-| Notifica | Inviata alla web app |
-
-
-
-\### Esempio di Notifiche
-
-\- \*\*Accensione riuscita:\*\* “Temperatura salita da 17.2°C a 18.4°C. La stufa è accesa.”  
-
-\- \*\*Accensione fallita:\*\* “Temperatura invariata (17.2°C). La stufa non si è accesa.”
-
-
-
-\## Esempio di Dati Registrati
-
-
-
-| Orario | Temperatura | Note |
-
-|-------|-------------|------|
-
-| 08:00 | 17.2°C | Comando di accensione inviato |
-
-| 08:20 | 18.4°C | Accensione riuscita |
-
-| 09:00 | 20.1°C | Temperatura in aumento |
-
-
-
-
-
-\## Considerazioni sulla Sicurezza
-
-\- Montare il servo in modo stabile e sicuro  
-
-\- Evitare pressioni eccessive sui pulsanti  
-
-\- Assicurarsi che la stufa possa essere accesa senza rischi  
-
-\- Implementare un timeout per evitare attivazioni ripetute
-
+## Web App (Docker)
+L'interfaccia utente è servita tramite un container Nginx leggero che ospita i file statici (HTML, CSS, JS).
