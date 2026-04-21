@@ -24,3 +24,6 @@ Il sistema lavora su due livelli di conferma per garantire la massima affidabili
 
 ## Web App (Docker)
 L'interfaccia utente è servita tramite un container Nginx leggero che ospita i file statici (HTML, CSS, JS).
+
+## link
+per aprire la web app andare sull'indirizzo: http://localhost:8080
