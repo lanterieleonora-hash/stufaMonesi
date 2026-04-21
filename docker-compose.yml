@@ -1,5 +1,5 @@
-services:
-  la-mia-app:
-    build: .
+services: #definizione servizi docker 
+  la-mia-app: #nome del mio servizio
+    build: . #docker costruisce l'immagine specificata nel dockerfile
     ports:
       - "8080:80" #devo adattare queste porte a quelle della mia web app
