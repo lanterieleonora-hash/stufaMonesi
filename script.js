@@ -6,7 +6,7 @@ const boxNotifiche = document.getElementById('notifiche');
 const tempDisplay = document.getElementById('temp-display');
 const timerDisplay = document.getElementById('timer-riscaldamento');
 
-// --- INDIRIZZI IP DEI DISPOSITIVI (Inserisci qui i tuoi IP fissi!) ---
+// --- INDIRIZZI IP DEI DISPOSITIVI (ora non sono veri perchè non ho ancora i dispositivi)-
 const RELAY_IP = "http://192.168.1.100";  // IP del Relè (Stufa)
 const TEMP_IP = "http://192.168.1.101";   // IP del Termometro Wi-Fi
 
